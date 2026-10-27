@@ -508,16 +508,19 @@ private final class WindowBarView: NSView {
         isHidden = false
         iconView.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
         let used = w.usedPercent ?? 0
-        let shown = showRemaining ? max(0, 100 - used) : used
+        let remaining = max(0, 100 - used)
+        // 数字显示当前模式（已用/剩余），但颜色始终按已用量取色——
+        // 用量高就该是红色，与进度条方向无关
+        let color = Format.percentColor(used)
+        let barPercent = showRemaining ? remaining : used
         var t = title
         if let secs = w.limitWindowSeconds {
             t += " · \(Format.windowLength(seconds: secs))"
         }
         titleLabel.stringValue = t
-        percentButton.title = showRemaining ? "剩 \(shown)%" : "\(shown)%"
-        let color = Format.percentColor(shown)
+        percentButton.title = showRemaining ? "剩 \(remaining)%" : "\(used)%"
         percentButton.contentTintColor = color
-        progress.set(percent: shown, color: color)
+        progress.set(percent: barPercent, color: color, fromRight: showRemaining)
         if let resetAt = w.resetAt {
             resetLabel.stringValue = "重置 \(Format.clock(Date(timeIntervalSince1970: TimeInterval(resetAt))))"
         } else {
@@ -621,6 +624,8 @@ private final class TintBox: NSView {
 private final class ColoredProgressBar: NSView {
     private let fill = NSView()
     private var fillWidth: NSLayoutConstraint!
+    private var leadingAlign: NSLayoutConstraint!
+    private var trailingAlign: NSLayoutConstraint!
     private var percent: Int = 0
     private var fillColor: NSColor = .systemGreen
 
@@ -633,8 +638,10 @@ private final class ColoredProgressBar: NSView {
         fill.translatesAutoresizingMaskIntoConstraints = false
         addSubview(fill)
         fillWidth = fill.widthAnchor.constraint(equalToConstant: 0)
+        leadingAlign = fill.leadingAnchor.constraint(equalTo: leadingAnchor)
+        trailingAlign = fill.trailingAnchor.constraint(equalTo: trailingAnchor)
         NSLayoutConstraint.activate([
-            fill.leadingAnchor.constraint(equalTo: leadingAnchor),
+            leadingAlign,
             fill.topAnchor.constraint(equalTo: topAnchor),
             fill.bottomAnchor.constraint(equalTo: bottomAnchor),
             fillWidth
@@ -662,10 +669,14 @@ private final class ColoredProgressBar: NSView {
         }
     }
 
-    func set(percent: Int, color: NSColor) {
+    /// - parameter percent: 填充长度（百分比 0~100）
+    /// - parameter fromRight: true 时从右边缘向左填充（剩余量模式），false 从左向右
+    func set(percent: Int, color: NSColor, fromRight: Bool = false) {
         self.percent = max(0, min(100, percent))
         self.fillColor = color
         fill.isHidden = self.percent <= 0
+        leadingAlign.isActive = !fromRight
+        trailingAlign.isActive = fromRight
         resolveColors()
         needsLayout = true
     }

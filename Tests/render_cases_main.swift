@@ -65,6 +65,12 @@ final class CasesDelegate: NSObject, NSApplicationDelegate {
                 s.todayTokens = tokens
                 s.lastRemoteUpdate = Date()
                 s.lastLocalUpdate = Date()
+            },
+            Case(name: "5_limit_remaining_mode", dark: false) { s in
+                s.usage = reachedUsage
+                s.todayTokens = tokens
+                s.lastRemoteUpdate = Date()
+                s.lastLocalUpdate = Date()
             }
         ]
     }()
@@ -96,6 +102,10 @@ final class CasesDelegate: NSObject, NSApplicationDelegate {
 
     private func render(controller: PanelController, dark: Bool, name: String) {
         let v = controller.view
+        // 剩余模式场景：模拟点击百分比按钮，切换到"已用/剩余"模式
+        if name.contains("remaining") {
+            tapPercentButtons(v)
+        }
         v.layoutSubtreeIfNeeded()
         let h = ceil(v.fittingSize.height)
         v.setFrameSize(NSSize(width: 340, height: h))
@@ -143,6 +153,20 @@ final class CasesDelegate: NSObject, NSApplicationDelegate {
         Timer.scheduledTimer(withTimeInterval: 0.2, repeats: false) { [weak self] _ in
             self?.runNext()
         }
+    }
+
+    @discardableResult
+    private func tapPercentButtons(_ view: NSView) -> Bool {
+        // 两个窗口共用一个全局开关，点一次即可；找到第一个百分比按钮后停止遍历
+        if let b = view as? NSButton, b.title.contains("%"),
+           let action = b.action {
+            _ = NSApp.sendAction(action, to: b.target, from: b)
+            return true
+        }
+        for sub in view.subviews where tapPercentButtons(sub) {
+            return true
+        }
+        return false
     }
 
     private func dumpTree(_ view: NSView, depth: Int) {
