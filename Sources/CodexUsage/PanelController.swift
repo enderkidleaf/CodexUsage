@@ -271,7 +271,7 @@ final class PanelController: NSViewController {
             .store(in: &bag)
     }
 
-    private func render() {
+    private func render(animated: Bool = false) {
         titleLabel.stringValue = "Codex 用量"
         planBadge.stringValue = " \(store.planDisplayName) "
         planBadge.isHidden = store.usage == nil
@@ -290,9 +290,11 @@ final class PanelController: NSViewController {
         statusDot.needsDisplay = true
 
         primaryBar.update(title: "短期窗口", icon: "bolt.fill",
-                          window: store.primary, now: store.now, showRemaining: showRemaining)
+                          window: store.primary, now: store.now,
+                          showRemaining: showRemaining, animated: animated)
         secondaryBar.update(title: "周窗口", icon: "calendar",
-                            window: store.secondary, now: store.now, showRemaining: showRemaining)
+                            window: store.secondary, now: store.now,
+                            showRemaining: showRemaining, animated: animated)
         primaryBar.onToggle = { [weak self] in self?.toggleDisplayMode() }
         secondaryBar.onToggle = { [weak self] in self?.toggleDisplayMode() }
 
@@ -372,7 +374,7 @@ final class PanelController: NSViewController {
 
     private func toggleDisplayMode() {
         showRemaining.toggle()
-        render()
+        render(animated: true)
     }
 
     @objc private func refresh() {
@@ -500,7 +502,8 @@ private final class WindowBarView: NSView {
         ])
     }
 
-    func update(title: String, icon: String, window: WhamUsage.RateWindow?, now: Date, showRemaining: Bool) {
+    func update(title: String, icon: String, window: WhamUsage.RateWindow?, now: Date,
+                 showRemaining: Bool, animated: Bool = false) {
         guard let w = window else {
             isHidden = true
             return
@@ -520,7 +523,8 @@ private final class WindowBarView: NSView {
         titleLabel.stringValue = t
         percentButton.title = showRemaining ? "剩 \(remaining)%" : "\(used)%"
         percentButton.contentTintColor = color
-        progress.set(percent: barPercent, color: color, fromRight: showRemaining)
+        progress.set(percent: barPercent, color: color,
+                      fromRight: showRemaining, animated: animated)
         if let resetAt = w.resetAt {
             resetLabel.stringValue = "重置 \(Format.clock(Date(timeIntervalSince1970: TimeInterval(resetAt))))"
         } else {
@@ -623,10 +627,10 @@ private final class TintBox: NSView {
 
 private final class ColoredProgressBar: NSView {
     private let fill = NSView()
+    private var fillLeading: NSLayoutConstraint!
     private var fillWidth: NSLayoutConstraint!
-    private var leadingAlign: NSLayoutConstraint!
-    private var trailingAlign: NSLayoutConstraint!
     private var percent: Int = 0
+    private var fromRight: Bool = false
     private var fillColor: NSColor = .systemGreen
 
     override init(frame frameRect: NSRect) {
@@ -638,10 +642,9 @@ private final class ColoredProgressBar: NSView {
         fill.translatesAutoresizingMaskIntoConstraints = false
         addSubview(fill)
         fillWidth = fill.widthAnchor.constraint(equalToConstant: 0)
-        leadingAlign = fill.leadingAnchor.constraint(equalTo: leadingAnchor)
-        trailingAlign = fill.trailingAnchor.constraint(equalTo: trailingAnchor)
+        fillLeading = fill.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 0)
         NSLayoutConstraint.activate([
-            leadingAlign,
+            fillLeading,
             fill.topAnchor.constraint(equalTo: topAnchor),
             fill.bottomAnchor.constraint(equalTo: bottomAnchor),
             fillWidth
@@ -652,7 +655,7 @@ private final class ColoredProgressBar: NSView {
 
     override func layout() {
         super.layout()
-        fillWidth.constant = bounds.width * CGFloat(percent) / 100.0
+        applyLayout(animated: false)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -669,16 +672,39 @@ private final class ColoredProgressBar: NSView {
         }
     }
 
+    private func targetMetrics() -> (leading: CGFloat, width: CGFloat) {
+        let w = bounds.width
+        let width = w * CGFloat(percent) / 100.0
+        let leading = fromRight ? max(0, w - width) : 0
+        return (leading, width)
+    }
+
+    private func applyLayout(animated: Bool) {
+        let (leading, width) = targetMetrics()
+        guard animated else {
+            fillLeading.constant = leading
+            fillWidth.constant = width
+            return
+        }
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.28
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            self.fillLeading.constant = leading
+            self.fillWidth.constant = width
+            self.animator().layoutSubtreeIfNeeded()
+        }
+    }
+
     /// - parameter percent: 填充长度（百分比 0~100）
     /// - parameter fromRight: true 时从右边缘向左填充（剩余量模式），false 从左向右
-    func set(percent: Int, color: NSColor, fromRight: Bool = false) {
+    /// - parameter animated: 是否平滑动画过渡（切换模式时使用）
+    func set(percent: Int, color: NSColor, fromRight: Bool = false, animated: Bool = false) {
         self.percent = max(0, min(100, percent))
+        self.fromRight = fromRight
         self.fillColor = color
-        fill.isHidden = self.percent <= 0
-        leadingAlign.isActive = !fromRight
-        trailingAlign.isActive = fromRight
+        fill.isHidden = false
         resolveColors()
-        needsLayout = true
+        applyLayout(animated: animated)
     }
 }
 
