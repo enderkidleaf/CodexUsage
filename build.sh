@@ -54,6 +54,7 @@ EOF
 
   echo "==> 组装 .app bundle"
   cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
+  cp "$ROOT/Resources/AppIcon.png" "$APP/Contents/Resources/AppIcon.png"
 
   echo "==> Ad-hoc 代码签名"
   codesign --force --sign - "$APP"

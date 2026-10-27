@@ -6,6 +6,8 @@ import Combine
 final class PanelController: NSViewController {
     private let store: RefreshStore
     private var bag = Set<AnyCancellable>()
+    /// true 时窗口百分比按"剩余量"显示，false 按"已用量"显示；点击卡片百分比切换
+    private var showRemaining = false
 
     // 头部
     private let statusDot = DotView()
@@ -288,9 +290,11 @@ final class PanelController: NSViewController {
         statusDot.needsDisplay = true
 
         primaryBar.update(title: "短期窗口", icon: "bolt.fill",
-                          window: store.primary, now: store.now)
+                          window: store.primary, now: store.now, showRemaining: showRemaining)
         secondaryBar.update(title: "周窗口", icon: "calendar",
-                            window: store.secondary, now: store.now)
+                            window: store.secondary, now: store.now, showRemaining: showRemaining)
+        primaryBar.onToggle = { [weak self] in self?.toggleDisplayMode() }
+        secondaryBar.onToggle = { [weak self] in self?.toggleDisplayMode() }
 
         renderCredits()
         renderTokens()
@@ -366,6 +370,11 @@ final class PanelController: NSViewController {
 
     // MARK: - 动作
 
+    private func toggleDisplayMode() {
+        showRemaining.toggle()
+        render()
+    }
+
     @objc private func refresh() {
         Task { await store.refreshRemote() }
         Task { await store.refreshLocal() }
@@ -435,10 +444,13 @@ private final class DotView: NSView {
 private final class WindowBarView: NSView {
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
-    private let percentLabel = NSTextField(labelWithString: "")
+    private let percentButton = NSButton()
     private let progress = ColoredProgressBar()
     private let resetLabel = NSTextField(labelWithString: "")
     private let countdownLabel = NSTextField(labelWithString: "")
+
+    /// 点击百分比区域时回调，由控制器翻转"已用/剩余"显示模式
+    var onToggle: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -450,7 +462,13 @@ private final class WindowBarView: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .systemFont(ofSize: 11, weight: .medium)
         titleLabel.textColor = .labelColor
-        percentLabel.font = .monospacedSystemFont(ofSize: 12, weight: .semibold)
+        percentButton.font = .monospacedSystemFont(ofSize: 12, weight: .semibold)
+        percentButton.bezelStyle = .inline
+        percentButton.isBordered = false
+        percentButton.target = self
+        percentButton.action = #selector(percentTapped)
+        percentButton.toolTip = "点击切换：已用 / 剩余"
+        percentButton.setContentHuggingPriority(.required, for: .horizontal)
         resetLabel.font = .systemFont(ofSize: 10)
         resetLabel.textColor = .tertiaryLabelColor
         countdownLabel.font = .monospacedSystemFont(ofSize: 10, weight: .medium)
@@ -460,7 +478,7 @@ private final class WindowBarView: NSView {
         progress.translatesAutoresizingMaskIntoConstraints = false
         progress.heightAnchor.constraint(equalToConstant: 8).isActive = true
 
-        let head = NSStackView(views: [iconView, titleLabel, flexibleSpacer(), percentLabel])
+        let head = NSStackView(views: [iconView, titleLabel, flexibleSpacer(), percentButton])
         head.orientation = .horizontal
         head.alignment = .centerY
         head.spacing = 6
@@ -482,29 +500,34 @@ private final class WindowBarView: NSView {
         ])
     }
 
-    func update(title: String, icon: String, window: WhamUsage.RateWindow?, now: Date) {
+    func update(title: String, icon: String, window: WhamUsage.RateWindow?, now: Date, showRemaining: Bool) {
         guard let w = window else {
             isHidden = true
             return
         }
         isHidden = false
         iconView.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
-        let pct = w.usedPercent ?? 0
+        let used = w.usedPercent ?? 0
+        let shown = showRemaining ? max(0, 100 - used) : used
         var t = title
         if let secs = w.limitWindowSeconds {
             t += " · \(Format.windowLength(seconds: secs))"
         }
         titleLabel.stringValue = t
-        percentLabel.stringValue = "\(pct)%"
-        let color = Format.percentColor(w.usedPercent)
-        percentLabel.textColor = color
-        progress.set(percent: pct, color: color)
+        percentButton.title = showRemaining ? "剩 \(shown)%" : "\(shown)%"
+        let color = Format.percentColor(shown)
+        percentButton.contentTintColor = color
+        progress.set(percent: shown, color: color)
         if let resetAt = w.resetAt {
             resetLabel.stringValue = "重置 \(Format.clock(Date(timeIntervalSince1970: TimeInterval(resetAt))))"
         } else {
             resetLabel.stringValue = ""
         }
         countdownLabel.stringValue = "剩余 \(Format.countdown(until: w.resetAt, now: now))"
+    }
+
+    @objc private func percentTapped() {
+        onToggle?()
     }
 
     private func flexibleSpacer() -> NSView {
